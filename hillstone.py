@@ -208,7 +208,7 @@ class IPSecParameters(object):
 class ClientCore(object):
     def __init__(self):
         self.context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        self.socket = self.context.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+        self.socket = self.context.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM), server_hostname='222.92.117.231:4433')
         self.client_ver = '1.0.0'
         self.server_host = ''
         self.server_port = -1
