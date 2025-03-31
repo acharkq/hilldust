@@ -140,7 +140,7 @@ class Payload(enum.Enum):
     CLIENT_AUTO_CONNECT = 136
 
 
-def Unpack(packet:bytes) -> (MessageType, dict, bool):
+def Unpack(packet:bytes) -> tuple[MessageType, dict, bool]:
     magic, reply, msg_t, size = struct.unpack('!BBHL', packet[:8])
     if magic == 0x0 and reply == 0 and msg_t == 0 and size == 0:
         return MessageType.NONE, {}, True
@@ -196,7 +196,7 @@ class IPSecParameters(object):
         for _ in range(9):
             self.enlarged_keymat += sha1(self.enlarged_keymat).digest()
         
-        def read_bytes(buf:bytes, size:int) -> (bytes, bytes):
+        def read_bytes(buf:bytes, size:int) -> tuple[bytes, bytes]:
             return buf[:size], buf[size:]
         buf = self.enlarged_keymat
         self.out_auth_key, buf = read_bytes(buf, auth_size)
@@ -208,6 +208,8 @@ class IPSecParameters(object):
 class ClientCore(object):
     def __init__(self):
         self.context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        self.context.check_hostname = False
+        self.context.verify_mode = ssl.CERT_NONE  # Skip certificate verification
         self.socket = self.context.wrap_socket(socket.socket(socket.AF_INET, socket.SOCK_STREAM), server_hostname='222.92.117.231:4433')
         self.client_ver = '1.0.0'
         self.server_host = ''
@@ -225,8 +227,6 @@ class ClientCore(object):
     def connect(self, host:str, port:int):
         self.server_host = socket.gethostbyname(host)
         self.server_port = port
-        self.socket.connect((self.server_host, self.server_port))
-
     def auth(self, username:str, password:str, host_id:str, host_name:str):
         m = Message(MessageType.AUTH)
         m.push_int(Payload.AUTH_TYPE, 2, 1) # Username + Password
@@ -236,15 +236,17 @@ class ClientCore(object):
         m.push_string(Payload.HOST_ID, host_id)
         m.push_string(Payload.HOST_NAME, host_name)
         self.socket.send(m.finish())
+        _, res, _ = Unpack(self.socket.recv(4096))
+        self.socket.send(m.finish())
         msg_id, res, _ = Unpack(self.socket.recv(4096))
         if res[Payload.STATUS] != b'\0\0\0\0':
-            raise AuthError
-
     def client_info(self):
         client_ipv4, server_ipv4 = '127.0.0.1', self.server_host
         m = Message(MessageType.CLNT_INFO)
         m.push_ipv4(Payload.CLT_PUB_IPV4, client_ipv4)
         m.push_ipv4(Payload.SVR_PUB_IPV4, server_ipv4)
+        self.socket.send(m.finish())
+        _, res, _ = Unpack(self.socket.recv(4096))
         self.socket.send(m.finish())
         msg_id, res, _ = Unpack(self.socket.recv(4096))
         if res[Payload.STATUS] != b'\0\0\0\0':
@@ -269,8 +271,6 @@ class ClientCore(object):
             elif msg_id == MessageType.SET_ROUTE:
                 self.route_ipv4 = res[Payload.ROUTE_IPV4]
             elif msg_id == MessageType.KEY_DONE:
-                break
-
     def new_key(self):
         from os import urandom
         key_material_size = 0x30
@@ -282,6 +282,8 @@ class ClientCore(object):
         m.push_bytes(Payload.KEYMAT, key_material)
         m.push_int(Payload.SPI, 4, inbound_spi)
         m.push_int(Payload.IPCOMP_CPI, 2, inbound_cpi)
+        self.socket.send(m.finish())
+        _, res, _ = Unpack(self.socket.recv(4096))
         self.socket.send(m.finish())
         msg_id, res, _ = Unpack(self.socket.recv(4096))
         if res[Payload.STATUS] != b'\0\0\0\0':
