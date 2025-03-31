@@ -19,7 +19,7 @@ delim_index = target.rindex(':')
 host, port = target[:delim_index], target[delim_index+1:]
 
 import impl_scapy
-c = impl_scapy.Client()
+c = impl_scapy.Client(server_hostname=host)
 c.connect(host, int(port))
 print('Connected.')
 c.auth(sys.argv[2], sys.argv[3], '', '')
